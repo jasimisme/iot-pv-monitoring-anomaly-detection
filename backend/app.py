@@ -1,45 +1,13 @@
 from flask import Flask, jsonify, request
 
+from database.queries import (
+    get_latest_telemetry,
+    get_telemetry_history,
+    get_anomaly_logs
+)
+
 app = Flask(__name__)
 
-# =========================================================
-# Dummy in-memory data
-# (sementara untuk testing awal)
-# =========================================================
-
-latest_sensor_data = {
-    "voltage": 18.2,
-    "current": 4.1,
-    "temperature": 31.0,
-    "irradiance": 840,
-    "timestamp": "2026-05-26T10:30:00"
-}
-
-latest_anomaly = {
-    "status": "normal",
-    "confidence": 0.97,
-    "timestamp": "2026-05-26T10:30:01"
-}
-
-sensor_history = [
-    {
-        "timestamp": "2026-05-26T10:00:00",
-        "voltage": 18.1,
-        "current": 4.0
-    },
-    {
-        "timestamp": "2026-05-26T10:05:00",
-        "voltage": 18.3,
-        "current": 4.2
-    }
-]
-
-anomaly_logs = [
-    {
-        "timestamp": "2026-05-26T09:12:00",
-        "fault": "mismatch_fault"
-    }
-]
 
 # =========================================================
 # 1. GET /api/live
@@ -49,9 +17,19 @@ anomaly_logs = [
 def get_live_data():
 
     try:
-        return jsonify(latest_sensor_data), 200
+
+        data = get_latest_telemetry()
+
+        if data is None:
+
+            return jsonify({
+                "error": "No telemetry data found"
+            }), 404
+
+        return jsonify(data), 200
 
     except Exception as e:
+
         return jsonify({
             "error": str(e)
         }), 500
@@ -65,9 +43,29 @@ def get_live_data():
 def get_latest_anomaly():
 
     try:
-        return jsonify(latest_anomaly), 200
+
+        logs = get_anomaly_logs(limit=1)
+
+        if len(logs) == 0:
+
+            return jsonify({
+                "status": "normal",
+                "confidence": 1.0,
+                "timestamp": None
+            }), 200
+
+        latest = logs[0]
+
+        response = {
+            "status": latest["fault"],
+            "confidence": latest["confidence"],
+            "timestamp": latest["timestamp"]
+        }
+
+        return jsonify(response), 200
 
     except Exception as e:
+
         return jsonify({
             "error": str(e)
         }), 500
@@ -81,13 +79,19 @@ def get_latest_anomaly():
 def get_history():
 
     try:
-        limit = request.args.get("limit", default=100, type=int)
 
-        data = sensor_history[:limit]
+        limit = request.args.get(
+            "limit",
+            default=100,
+            type=int
+        )
+
+        data = get_telemetry_history(limit)
 
         return jsonify(data), 200
 
     except Exception as e:
+
         return jsonify({
             "error": str(e)
         }), 500
@@ -98,12 +102,22 @@ def get_history():
 # =========================================================
 
 @app.route("/api/anomaly/logs", methods=["GET"])
-def get_anomaly_logs():
+def get_anomaly_logs_route():
 
     try:
-        return jsonify(anomaly_logs), 200
+
+        limit = request.args.get(
+            "limit",
+            default=100,
+            type=int
+        )
+
+        logs = get_anomaly_logs(limit)
+
+        return jsonify(logs), 200
 
     except Exception as e:
+
         return jsonify({
             "error": str(e)
         }), 500
@@ -117,16 +131,18 @@ def get_anomaly_logs():
 def health_check():
 
     try:
+
         health_status = {
             "status": "ok",
             "mqtt": "connected",
             "database": "connected",
-            "model": "loaded"
+            "model": "not_loaded"
         }
 
         return jsonify(health_status), 200
 
     except Exception as e:
+
         return jsonify({
             "error": str(e)
         }), 500
